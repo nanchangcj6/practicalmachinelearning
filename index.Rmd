@@ -1,30 +1,168 @@
 ---
-title: "Practical machine learning course project"
+title: "Practical Machine Learning Course Project"
 author: "Andrew Braddick"
-date: "2 May 2016"
+date: "20 May 2016"
 output: html_document
 ---
+##Introduction##  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.  
 
-```{r setup, include=FALSE}
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways represented by the "classe" variable in the provided datasets. 
+
+The 'classe' variable describes whether the exercise was done correctly or not and has the following values:  
+
+* A - Exactly according to the specification (correct)  
+* B - Throwing the elbows to the front (incorrect)  
+* C - Lifting the dumbbell only halfway (incorrect)  
+* D - Lowering the dumbbell only halfway (incorrect)   
+* E - Throwing the hips to the front (incorrect)  
+
+Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience.  All participants were easily able to simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg).  
+
+Our task in this project is to use the training dataset provided to build a predictive model that can predict whether an exercise is done correctly or not based on data from the sensors and then apply that model to a testing dataset to see how well we did.   
+
+###Obtain Data###  
+For reasons of reproducibility, the following code will obtain the datasets if they have not already been downloaded.  
+```{r setup}
 knitr::opts_chunk$set(echo = TRUE)
+suppressMessages(library(caret))
+# for multi-core processing
+suppressMessages(library(parallel))
+suppressMessages(library(doParallel))
+
+# Check that we have a directory for this analysis
+dir_name <- "~/datasciencecoursera/machine learning/practicalmachinelearning"
+
+# if the directory doesn't exist, create it
+if (!dir.exists(dir_name)) {
+        dir.create(dir_name)
+        }
+setwd(dir_name)
+train_data <- "pml-training.csv"
+test_data <- "pml-testing.csv"
+```
+ 
+```{r, data, cache=TRUE}
+# If the datasets aren't present, download them
+if (!file.exists(train_data)) {
+        url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+        download.file(url, 
+        train_data, 
+        mode = "wb")
+        }
+if (!file.exists(test_data)) {
+        url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+        download.file(url, 
+        test_data, 
+        mode = "wb")
+        }
+# read the datasets in making sure all columns that contain NA type data reflect this accurately
+training <- read.csv(train_data, na.strings = c("NA", "#DIV/0!",""))
+testing <- read.csv(test_data, na.strings = c("NA", "#DIV/0!", ""))
+dim(training); dim(testing)
+```
+##Exploratory Analysis and Data Preparation##  
+The training dataset contains 19622 rows and 160 columns.  The testing dataset contains 20 rows and 160 columns.  
+
+Firstly the first 7 columns are removed as they contain values such as username, timestamp, etc. that are not predictors of the outcome.  The data sets also contain a number of NA strings and these are also removed.  Once cleaned up, the training dataset is further split into a training subset and a validation subset so that we can build and test multiple models without touching the testing set and risking over-fitting.   
+
+```{r pre-process}
+set.seed(1212)
+# remove labels as they aren't valid predictors
+training <- training[, -(1:7)]
+# and NA strings
+training <- training[,(colSums(is.na(training)) == 0)]
+dim(training)
+# now split the training data into training (70%) and validation(30%)
+id_train<- createDataPartition(training$classe, p=0.7, list=FALSE)
+my_training<- training[id_train, ]
+my_validation <- training[-id_train, ]
+dim(my_training); dim(my_validation)
 ```
 
-## R Markdown
+##Apply Different Prediction Models##  
+We will build predictive models using two different methods: the classification trees and the random forest methods - Each model will then be tested for its accuracy to decide which is the best one to use on the testing dataset.  
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Each model is first built on the training subset data created above and then validated on the validation subset data.  This way we save the testing dataset until we have our best model.  
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+We have chosen a cross validation resampling number of 5 instead of the default of 10 as performance is really slow at the default and through trial and error it was found that 5 worked well.  Note that the processing time is captured and reported as an illustration of the relative performance of the two methods.  
 
-```{r cars}
-summary(cars)
+After training the model a confusion matrix is used to test the results and identify the out-of-sample error rate.  
+
+Note: Parallel processing is used to speed up the random forest model with acknowledgement to the Coursera discussion forum article on how to do it.  
+```{r Model, cache=TRUE}
+# set up for multi-core processing
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+# Start the clock!
+ptm <- proc.time()
+# build the classification trees model
+model_rpart <- train(classe ~ ., 
+                data = my_training, 
+                method = "rpart",
+                trControl = trainControl(method = "cv", 
+                        number = 5,
+                        allowParallel = TRUE))
+# and apply it to the validation set 
+validate_rpart <- predict(model_rpart, my_validation)
+confus_rpart <- confusionMatrix(my_validation$classe, validate_rpart)
+# Extract the accuracy of the trees model from the confusion matrix
+confus_rpart$overall[1]
+# stop timing
+rpart_time <- proc.time() - ptm
+# now try random forest
+# Start the clock!
+ptm <- proc.time()
+model_rf <- train(classe ~ ., 
+               data = my_training, 
+               method = "rf", 
+               trControl=trainControl(method="cv", 
+                        number=5,
+                        allowParallel = TRUE))
+
+# and apply this model to the validation set
+validate_rf <- predict(model_rf, my_validation)
+confus_rf <- confusionMatrix(my_validation$classe, validate_rf)
+# Extract the accuracy of the trees model from the confusion matrix
+confus_rf$overall[1]
+# stop timing
+rf_time <- proc.time() - ptm
+# End multi-cluster operations
+stopCluster(cluster)
 ```
+The following table contains the accuracy of the two models.  
 
-## Including Plots
+Model Method | Accuracy  
+-----------|---------------  
+Classification Trees | `r round(confus_rpart$overall[1], digits = 4)`    
+Random Forest | `r round(confus_rf$overall[1], digits = 4)`  
 
-You can also embed plots, for example:
+So the random forest model is much more accurate and therefore the better one to use.  
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+We refer to the confusion matrix table for the random forest model (below) to check for the out of sample errors.       
+```{r}
+confus_rf$table
+```  
+There are approximately 38 out of 5885 incorrectly predicted values.  This corresponds to 1 - 'random forest accuracy rate' or `r 1 - confus_rf$overall[1]`.  
+
+##Final Model##  
+Finally we apply the best model we built - the random forest model - to the testing dataset to predict the outcome.  
+```{r predict}
+final_model <- predict(model_rf, testing)
+final_model
 ```
+##Appendix##  
+###Processing speed###  
+Note that the processing time for the random forest model was considerably longer than the classification trees model as illustrated in the table below.    
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Model Method | Processing Time (seconds elapsed)  
+-----------|---------------  
+Classification Trees | `r rpart_time[3]`    
+Random Forest | `r rf_time[3]`  
+
+Parallel processing made a significant improvement (~60%) to the time it took to do the random forest model.  The following article was used to implement the parallel processing https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md 
+
+###Acknowledgements###  
+The data for this project comes from: http://groupware.les.inf.puc-rio.br/har. They have been very generous in allowing their data to be used for this assignment.  
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.  
