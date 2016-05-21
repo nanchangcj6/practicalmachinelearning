@@ -283,8 +283,16 @@ stopCluster(cluster)</code></pre>
 <div id="final-model" class="section level2">
 <h2>Final Model</h2>
 <p>Finally we apply the best model we built - the random forest model - to the testing dataset to predict the outcome.</p>
-<pre class="r"><code>final_model &lt;- predict(model_rf, testing)
-final_model</code></pre>
+<pre class="r"><code>final_model &lt;- predict(model_rf, testing)</code></pre>
+<pre><code>## Loading required package: randomForest</code></pre>
+<pre><code>## randomForest 4.6-12</code></pre>
+<pre><code>## Type rfNews() to see new features/changes/bug fixes.</code></pre>
+<pre><code>## 
+## Attaching package: 'randomForest'</code></pre>
+<pre><code>## The following object is masked from 'package:ggplot2':
+## 
+##     margin</code></pre>
+<pre class="r"><code>final_model</code></pre>
 <pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B
 ## Levels: A B C D E</code></pre>
 </div>
